@@ -1,0 +1,31 @@
+{
+  "name": "voragine/kernel",
+  "type": "library",
+  "description": "Voragine Framework's Kernel",
+  "keywords": ["kernel","services","framework"],
+  "homepage": "https://github.com/kaizendeveloper/process-launcher",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Miguel Delli Carpini",
+      "email": "migueldellicarpini@gmail.com",
+      "role": "Developer"
+    }
+  ],
+  "repositories": [
+    {
+      "type": "git",
+      "url": "https://github.com/kaizendeveloper/voragine-kernel"
+    }
+
+  ],
+  "autoload": {
+    "psr-4": {
+      "Voragine\\Kernel\\": ""
+    }
+  },
+  "require": {
+    "php": ">=4.1.0"
+  }
+
+}
