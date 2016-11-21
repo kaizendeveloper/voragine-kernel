@@ -25,7 +25,11 @@
     }
   },
   "require": {
-    "php": ">=4.1.0"
+    "php": ">=4.1.0",
+    "doctrine/orm": "2.4.8",
+    "symfony/yaml": "2.6.*",
+    "symfony/console": "2.6.13",
+    "monolog/monolog": "1.21.0"
   }
 
 }
