@@ -1,74 +1,61 @@
 <?php
 /**
- * ConfiguratorWrapper
+ * Service Loader
  *
- * Punto di partenza per la configurazione usata per l'applicazione
+ * Factory like model, it instanciates the classes that work as services for the whole application
  *
- * Stabilisce la lettura dello YAML principale e a partire da lì va a leggere in base al
- * SITEACCESS il file di configurazione YAML per gli altri pezzi dell'applicazione
- *
- * Ad esempio: la configurazione per il DB, l'HTTP crawler e il mailer
+ * It needs an initial config YAML which specifies the global scope services and establishes the
+ * SITEACCESS' configuration file location
  *
  */
 
 namespace Voragine\Kernel\Services\Base;
 
-//Entriamo nello spazio di YAML
-use Voragine\Kernel\Services;
-use Voragine\Kernel\Services\ErrorDebugHandlerService;
-use Voragine\Kernel\Services\ImageHandlerService;
-use Voragine\Kernel\Services\RouterService;
-use Voragine\Kernel\Services\TemplateEngineService;
-use Voragine\Kernel\Services\EnvironmentDetectorService;
 
 //Symfony components
-use Symfony\Component\Config\Definition\Exception\Exception;
 use Symfony\Component\Yaml\Yaml;
-use Symfony\Component\Yaml\Exception\ParseException;
 
-//Monolog
-use Monolog\Logger;
-use Monolog\Handler\StreamHandler;
-
-//Spazio dei configuratori
-use Voragine\Kernel\Services\DatabaseConnectionService;
-use Voragine\Kernel\Services\MailerService;
 
 class ServiceLoader implements \IteratorAggregate
 {
 
+    //Default values
     const DEFAULT_CONFIG_PATH = 'Resources/config';
-
     const DEFAULT_MAIN_CONFIG_FILE = 'mainconfig.yml';
 
-    //Stringhe constanti che si trovano nella configurazione dei servizi
+    //String constants used while reading the conf keys
     const SERVICE_CLASS_ID = 'class';
     const SERVICE_CONF_ALIAS_ID = 'conf_alias';
-    const SERVICE_MANDATORY_ID = 'mandatory';
+    const SERVICE_MANDATORY_ID  = 'mandatory';
 
-    const LOG_FILE_PATH = 'var/log';
-    const LOG_FILENAME = 'all-logs.log';
+    const CFGK_SERVICE_LOADER   = 'service_loader';
+    const CFGK_SERV_NS          = 'services_namespace';
+    const CFGK_BASE_PATH        = 'base_path';
+    const CFGK_REL_TO_DPATH     = 'relative_to_default_path';
+    const CFGK_MAIN_FILENAME    = 'main_filename';
 
-    const BASE_NAMESPACE = 'Voragine\\Kernel\\Services\\';
+
+    //Default base namespace for all services
+    const DEFAULT_BASE_NAMESPACE = 'Voragine\\Kernel\\Services\\';
 
 
-    //Siteaccess attuale
+    //Siteaccess
     protected $siteaccess;
     protected $siteaccess_config_file_data;
 
-    //Per il caricamento dei file
+    //For loading the config files
     protected $base_config_path;
     protected $main_config_file;
 
 
-    //Servizi
+    //Services
     //-----------------------------------
 
     //Spazio per le istanze dei servizi
     protected $service_pool;
     protected $service_definition;
+    protected $services_namespace;
 
-    protected $logger;
 
     protected $special_config_array;
 
@@ -79,32 +66,10 @@ class ServiceLoader implements \IteratorAggregate
         //Caricamento delle impostazioni
         //-------------------------------------------------
 
+        $this->base_config_path     = self::DEFAULT_CONFIG_PATH;
+        $this->main_config_file     = self::DEFAULT_MAIN_CONFIG_FILE;
+        $this->services_namespace   = self::DEFAULT_BASE_NAMESPACE;
 
-        $this->base_config_path = self::DEFAULT_CONFIG_PATH;
-        $this->main_config_file = self::DEFAULT_MAIN_CONFIG_FILE;
-
-        //Ci sono dei servizi che devono esserci per default, ad esempio il logger e l'error handler
-
-        //Abilitiamo il logger
-
-
-        //Instanziamo prima il logger così
-        //Rendiamolo un servizio per tutta l'applicazione
-        $this->logger = new Logger('FeedSystem');
-
-        //Percorso dove andrà a scrivere il nostro logger
-        $percorsoLog = APP_BASEDIR . self::LOG_FILE_PATH;
-
-        //Prima di creare lo StreamHandler controlliamo se esiste il percorso per il log, altrimenti Monolog fallirà
-        if(!$this->checkIfDirectoryExists($percorsoLog))
-        {
-
-            $this->createDirectory($percorsoLog);
-
-        }
-
-        //configuriamo l'output del logger
-        $this->logger->pushHandler(new StreamHandler($percorsoLog . DIRECTORY_SEPARATOR . self::LOG_FILENAME, Logger::DEBUG, false, 0777));
 
 
 
@@ -114,7 +79,7 @@ class ServiceLoader implements \IteratorAggregate
 
         //Salviamo le configurazioni speciali, che possono servire per qualsiasi altro servizio, compreso anche
         //questo caricatore
-        $this->special_config_array = $specialConfigurations;
+        //$this->special_config_array = $specialConfigurations;
 
 
         //Prendiamo il percorso del file iniziale
@@ -125,7 +90,7 @@ class ServiceLoader implements \IteratorAggregate
 
 
 
-        //Parsiamo lo Yaml con la configurazione globale (se non si riesce a beccare il file il risultato sarà null)
+        //Parse the global YAML configuration (if the file is not readable will throw an exception)
         try {
 
             $globalConfig = Yaml::parse(file_get_contents($mainConfigFile));
@@ -133,7 +98,8 @@ class ServiceLoader implements \IteratorAggregate
         } catch(\Exception $e){
 
             //C'è un problema con lo YAML, logghiamo e usciamo
-            $this->logger->error($e->getMessage());
+            syslog(LOG_ERR, $e->getMessage());
+            echo $e->getMessage() . "\r\n";
 
             //Dobbiamo loggare qui e uscire
             exit(0);
@@ -178,7 +144,7 @@ class ServiceLoader implements \IteratorAggregate
             if($this->siteaccess === null) {
                 //Non è stato trovato un ambiente da dove prendere le configurazioni
 
-                $this->logger->error("Enviroment passato da CLI ma non c'è riferimento al file YAML per \"" . $environment . "\" forse c'è un errore d'indentazione. Controllate il parametro \"file:\" sotto la configurazione del siteaccess nel mainconfig.yml e quello che passate da CLI.");
+                syslog(LOG_ERR, "Enviroment passato da CLI ma non c'è riferimento al file YAML per \"" . $environment . "\" forse c'è un errore d'indentazione. Controllate il parametro \"file:\" sotto la configurazione del siteaccess nel mainconfig.yml e quello che passate da CLI.");
 
                 exit(0);
             }
@@ -194,12 +160,45 @@ class ServiceLoader implements \IteratorAggregate
             //--------------------------------------------------------------------
 
 
-
+            //Parte per Google Cloud
+            //--------------------------------------------------------
             if(isset($globalConfig['siteaccesses']))
             {
                 foreach($globalConfig['siteaccesses'] as $key => $siteaccessConfigInfo)
                 {
                     //Il primo livello definisce la descrizione del siteaccess, che verrà contenuta nella variabile $key
+
+                    //Rilevamento variabili di ambiente Google Cloud
+                    //Devono esserci almeno: criterio per il rilevamento e il nome di file per tale siteaccess
+                    if(isset($siteaccessConfigInfo['gcloud_env_var']))
+                    {
+                        if($this->doesSiteaccessMatchUsingGCloud($siteaccessConfigInfo['gcloud_env_var']) === true) {
+
+                            //Controlliamo che nella configurazione ci sia l'impostazione del file a leggere
+
+                            //Abbiamo già la posizione nell'array dove dovrebbe esserci l'impostazione del file a
+                            //leggere
+                            $this->siteaccess = $key;
+
+
+                            if(isset($siteaccessConfigInfo['file']))
+                            {
+                                $localConfigFile = $siteaccessConfigInfo['file'];
+
+                                //Abbiamo già il necessario (Usciamo dal FOREACH)
+                                break;
+
+                            } else {
+                                syslog(LOG_ERR, "Siteaccess rilevato ma non c'è riferimento al file YAML
+ per il siteaccess " . $this->siteaccess . " forse c'è un errore d'indentazione. Controllate il 
+ parametro \"file:\" sotto la configurazione del siteaccess nel mainconfig.yml");
+                                exit(0);
+                            }
+                        }
+                    }
+
+                    //Parte per web server normali
+                    //--------------------------------------------------------
 
                     //Devono esserci almeno: criterio per il rilevamento e il nome di file per tale siteaccess
                     if(isset($siteaccessConfigInfo['host_pattern']))
@@ -221,7 +220,7 @@ class ServiceLoader implements \IteratorAggregate
                                 break;
 
                             } else {
-                                $this->logger->error("Siteaccess rilevato ma non c'è riferimento al file YAML
+                                syslog(LOG_ERR, "Siteaccess rilevato ma non c'è riferimento al file YAML
  per il siteaccess " . $this->siteaccess . " forse c'è un errore d'indentazione. Controllate il 
  parametro \"file:\" sotto la configurazione del siteaccess nel mainconfig.yml");
                                 exit(0);
@@ -253,117 +252,50 @@ class ServiceLoader implements \IteratorAggregate
 
 
         //------------------------------------------------------------------------------------------
-        //Nota: A questo punto il programma dovrebbe sapere su quale ambiente sta lavorando
+        //Note: At this very point the program already know under what environment is working on
         //------------------------------------------------------------------------------------------
-
 
         if($localConfigFile !== null) {
 
-            //Creiamo percorso di lettura e tentiamo il parsing del file
-            $specificSiteaccessFile = APP_BASEDIR . $this->base_config_path . "/siteaccess/" . $localConfigFile;
-            //Parsiamo il file specifico secondo l'ambiente
-            //(se non si riesce a beccare il file il risultato sarà null)
-            $this->siteaccess_config_file_data = Yaml::parse(file_get_contents($specificSiteaccessFile));
+            //Assemble the full path for the siteaccess related configuration file
+            $specificSiteaccessFile = APP_BASEDIR . $this->base_config_path . DIRECTORY_SEPARATOR . "siteaccess" . DIRECTORY_SEPARATOR . $localConfigFile;
 
-            //In base al siteaccess attiviamo il servizi che devono esserci per forza
-            if($this->siteaccess_config_file_data === null)
-            {
+            //And try to parse that YAML file
+            try {
 
-                $executionError = "Caricamento del file YAML per il siteaccess " . $this->siteaccess . " non riuscito";
-                echo $executionError;
-                $this->logger->error($executionError);
+                $this->siteaccess_config_file_data = Yaml::parse(file_get_contents($specificSiteaccessFile));
+
+            } catch(\Exception $e){
+
+                //In case of error, log and stop execution
+                $executionError = "Voragione Service Loader - Loading of siteaccess " . $this->siteaccess . " failed";
+                syslog(LOG_ERR, $executionError);
+                echo $executionError . "\r\n";
+
                 exit(0);
 
             }
 
+
         } else {
-            $executionError = "Impossibile caricare il file principale " . self::DEFAULT_MAIN_CONFIG_FILE . " non posso configurare niente, controllate che sia a posto.";
-            echo $executionError;
-            $this->logger->error($executionError);
+            //Output the error and die giving as much hints as possible
+            $executionError = "Voragine Service Loader - Loading of the main file " . $this->main_config_file  . " is not possible, check your siteaccess configuration set up";
+            echo $executionError . "\r\n";
+
+            //Write on log (useful under Google Cloud App Engine)
+            syslog(LOG_ERR, $executionError);
+
+            //Print additional hints
+            echo "<pre>";
+            $configurazioniServer = print_r($_SERVER, true);
+            echo $configurazioniServer;
+            echo "</pre>";
+
+            //Put that hint also on the log
+            syslog(LOG_ERR, \json_encode($configurazioniServer, 0, 10));
+
             exit(0);
         }
-    }
-
-
-
-
-
-
-
-
-
-
-
-    // -------------------------------------------------------------------------------------------------
-    // ------------------------------------------ LIBRERIE ---------------------------------------------
-    // -------------------------------------------------------------------------------------------------
-
-
-    /**
-     * Crea ricorsivamente un percorso settando nel giro di elaborazione i permessi per ogni livello del percorso
-     *
-     * @param null $directory
-     * @return null
-     */
-    protected function createDirectory($directory = null) {
-
-        //Nel caso non ci venga passato il nome del file a scrivere, usciamo gracilmente
-        if ($directory === null) {
-            return null;
-        }
-
-        //Prendiamo il percorso del file, eliminando gli slash '/' e '\' di troppo
-        //evitando di toglierli nel caso di http://www.elle.it, invece per i sistemi windows
-        //evitiamo di togliere gli inizi delle cartelle di rete \\host\percorso
-        $path = preg_replace('/(?<!:)(\/{2,})|(?<!^)(\\{2,})/i', '/', $directory);
-
-        //Dobbiamo capire se ci troviamo in un sistema Windows o Linux compatible
-
-
-        //Prendiamo i pezzi che compongono il percorso, considerando sia i sistemi Windows che quelli Linux
-        //cioè /var/www/...... che C:\Apache2\htdocs\...
-
-        $path_parts = preg_split ( '/(\\\\|\/)/i' , $path);
-
-
-
-        //Dobbiamo definire fuori per poterlo usare bene dentro il ciclo
-        $assembledDirectory = '';
-
-        //Gira per ogni pezzo e ricomponi man mano tutto il percorso desiderato
-        foreach($path_parts as $directoryPart) {
-
-
-            //Dopo l'estrazione, nei sistemi Linux laddove c'è uno slash da solo l'elemento nell'array risultante
-            //sarà vuoto tipo all'inizio di un percorso, ad esempio /var/www, per questo motivo dobbiamo agire
-            //solo sui valori non vuoti
-            if($directoryPart != '') {
-
-                //Ed è qui dove construiamo il percorso nel modo valido per ciascun sistema
-                if(DIRECTORY_SEPARATOR === '/'){
-                    //Unix like: prima / e poi pezzo percorso -> /var /www
-                    $assembledDirectory .=  DIRECTORY_SEPARATOR . $directoryPart;
-                } elseif (DIRECTORY_SEPARATOR === '\\'){
-                    //Windows like: Prima percorso e poi slash al contrario -> C:\ Apache2\
-                    $assembledDirectory .=  $directoryPart . DIRECTORY_SEPARATOR;
-                }
-
-                //Controlliamo se esiste la directory
-                if(is_dir($assembledDirectory) === false) {
-
-                    //Se non esiste la creiamo e cambiamo i permessi
-                    if(mkdir($assembledDirectory) === false)
-                    {
-                        echo 'Avvio impossibilitato poiché non posso creare la cartella ' . $assembledDirectory;
-                        exit(0);
-                    }
-                    chmod($assembledDirectory, octdec('0775'));
-
-                }
-
-            }
-        }
-
     }
 
 
@@ -410,6 +342,27 @@ class ServiceLoader implements \IteratorAggregate
 
     }
 
+    /**
+     * Per il rilevamento del siteaccess negli ambienti Google App Engine
+     * @param $pattern
+     * @return bool
+     */
+    protected function doesSiteaccessMatchUsingGCloud($pattern) {
+
+
+        // RILEVAMENTO
+        //-----------------------------------------------------------------------------------------------------
+
+        //Se matcha, preg_match resituirà 1 (intero) sennò 0|false, quindi facciamo un cast per restituire un true o false
+
+        //In alcuni progetti le variabili d'ambiente non sono su $_ENV ma su $_SERVER
+        if(!isset($_ENV['HMI_ENV'])){
+            return (boolean)(preg_match('/^' . $pattern . '$/i', $_SERVER['HMI_ENV']));
+        }
+        return (boolean)(preg_match('/^' . $pattern . '$/i', $_ENV['HMI_ENV']));
+
+    }
+
     public function getIterator() {
         return new \ArrayIterator($this->service_pool);
     }
@@ -428,29 +381,38 @@ class ServiceLoader implements \IteratorAggregate
      *
      * @param $serviceIdentifier
      * @param $overrideConfigurazione
+     * @param $configurazioniSpeciali
      * @return mixed
+     * @throws \Exception
      */
-    public function getService($serviceIdentifier, $overrideConfigurazione = null)
+    public function getService($serviceIdentifier, $overrideConfigurazione = null, $configurazioniSpeciali = null)
     {
 
-        //Se abbiamo già l'istanza del servizio, non c'è niente da fare, diamo quella
+        //Return the object if it's already loaded in memory
         if(isset($this->service_pool[$serviceIdentifier]))
         {
             return $this->service_pool[$serviceIdentifier];
 
         } else {
 
-            //Vediamo se esiste la definizione del servizio
+            //Check the service definition existence first
             if(isset($this->service_definition[$serviceIdentifier]))
             {
                 //Esiste, vediamo se c'è la classe che si deve istanziare
                 if(isset($this->service_definition[$serviceIdentifier][self::SERVICE_CLASS_ID]))
                 {
-                    //Prendiamo la classe ed inseriamo il namespace giusto in base
-                    $classe = self::BASE_NAMESPACE . $this->service_definition[$serviceIdentifier][self::SERVICE_CLASS_ID];
+
+                    $classe = $this->service_definition[$serviceIdentifier][self::SERVICE_CLASS_ID];
+
+                    //Check if the service class definition (YAML side) is meant for global namespacing
+                    if(!preg_match('/^\\\\{1}/im', $classe)){
+
+                        //The intended namespacing is relative to Voragine's defined services, therefore
+                        $classe = $this->cleanDoubleSlash($this->services_namespace . '\\' . $classe);
+                    }
 
                 } else {
-                    throw new Exception('Servizio definito ma la classe non è stata trovata, controllate il ' . self::DEFAULT_MAIN_CONFIG_FILE);
+                    throw new \Exception('The service is defined but the class has not been found, check your ' . $this->main_config_file . ' file');
                 }
 
                 //Esiste, vediamo se c'è un alias per leggere la configurazione nel file YAML di siteaccess
@@ -481,8 +443,8 @@ class ServiceLoader implements \IteratorAggregate
                 }
 
                 //Vero e proprio instaziamento della classe
-                $this->service_pool[$serviceIdentifier] = new $classe($configurazione, $this->siteaccess, $this->special_config_array);
-
+                $this->service_pool[$serviceIdentifier] = new $classe($configurazione, $this->siteaccess, $configurazioniSpeciali, $this);
+                //@todo: migliorare l'incorporazione del service loader all'istanza di ogni servizio
 
 
                 return $this->service_pool[$serviceIdentifier];
@@ -496,13 +458,18 @@ class ServiceLoader implements \IteratorAggregate
      *
      * @param $serviceIdentifier
      * @param $configurazione
+     * @param $configurazioneSpeciale Data una chiamata di servizio, consente il passaggio di configurazioni aggiuntive
+     *                                mirate per un determinato servizio
      * @return mixed
      */
-    public function get($serviceIdentifier, $configurazione = null)
+    public function get($serviceIdentifier, $configurazione = null, $configurazioneSpeciale = null)
     {
-        return $this->getService($serviceIdentifier, $configurazione);
+        return $this->getService($serviceIdentifier, $configurazione, $configurazioneSpeciale);
     }
 
+    /**
+     *  Carica tutti servizi definiti nello YAML principale come servizi obbligatori
+     */
     public function initAllMandatoryServices(){
 
         foreach($this->service_definition as $nomeServizio => $definizione)
@@ -527,29 +494,6 @@ class ServiceLoader implements \IteratorAggregate
         }
     }
 
-
-    protected function checkIfDirectoryExists($directory = null) {
-        //Nel caso non ci venga passato il nome del file a scrivere, usciamo gracilmente
-        if($directory === null) {
-            return null;
-        }
-
-        //Puliamo le cache di scrittura su disco
-        clearstatcache();
-
-        //Eliminiamo eventuali '/' di troppo
-        $builtDir = preg_replace('/(?<!:)(\/{2,})/i', '/' , APP_BASEDIR . '/' . $directory);
-
-
-
-
-        //Controlliamo se sulla cartella di lavoro ci si può scrivere
-        if(is_dir($builtDir) && is_writable($builtDir)){
-            return true;
-        } else {
-            return false;
-        }
-    }
 
     /**
      * Controlla se un oggetto è di un tipo X
@@ -593,29 +537,49 @@ class ServiceLoader implements \IteratorAggregate
      */
     protected function configureThisServiceUsing($config) {
 
-
-
         //Valori per default
 
         if(!is_null($config)) {
 
-            //Vediamo se c'è una configurazione speciale rivolto al caricatore
 
+            //YAML files configuration loading
+            //-----------------------------------------------------------
             if(is_array($config)) {
-                if(isset($config['service_loader'])) {
-                    if(isset($config['service_loader']['base_path'])) {
-                        $this->base_config_path = self::DEFAULT_CONFIG_PATH . DIRECTORY_SEPARATOR . $config['service_loader']['base_path'];
+                if(isset($config[self::CFGK_SERVICE_LOADER])) {
+
+                    //Base path override
+                    if(isset($config[self::CFGK_SERVICE_LOADER][self::CFGK_BASE_PATH])) {
+
+                        //Is it relative to the default config path?
+                        if(isset($config[self::CFGK_SERVICE_LOADER][self::CFGK_REL_TO_DPATH]) && $config[self::CFGK_SERVICE_LOADER][self::CFGK_REL_TO_DPATH]){
+
+                            //Set it up relative to the default config path
+                            $this->base_config_path = self::DEFAULT_CONFIG_PATH . DIRECTORY_SEPARATOR . $config[self::CFGK_SERVICE_LOADER][self::CFGK_BASE_PATH];
+
+                        } else {
+                            //No, the base config path has been changed then
+                            $this->base_config_path = DIRECTORY_SEPARATOR . $config[self::CFGK_SERVICE_LOADER][self::CFGK_BASE_PATH];
+                        }
                     }
-                    if(isset($config['service_loader']['main_filename'])) {
-                        $this->main_config_file = $config['service_loader']['main_filename'];
+
+                    //Services Namespace Override
+                    if(!empty($config[self::CFGK_SERV_NS])) {
+
+                        $this->services_namespace = $config[self::CFGK_SERV_NS];
+                    }
+
+                    //Main config filename override
+                    if(isset($config[self::CFGK_SERVICE_LOADER][self::CFGK_MAIN_FILENAME])) {
+                        $this->main_config_file = $config[self::CFGK_SERVICE_LOADER][self::CFGK_MAIN_FILENAME];
                     }
                 }
             }
         }
 
+        //Construct the main configuration file full path
         $mainConfigFile = APP_BASEDIR . $this->base_config_path . DIRECTORY_SEPARATOR .$this->main_config_file;
 
-        //Eliminiamo gli eventuali doppi slash
+        //Clean the eventually repeated double slashes
         $mainConfigFile = $this->cleanDoubleSlash($mainConfigFile);
 
         return $mainConfigFile;
@@ -636,5 +600,82 @@ class ServiceLoader implements \IteratorAggregate
         //evitiamo di togliere gli inizi delle cartelle di rete \\host\percorso
         return preg_replace('/(?<!:)(\/{2,})|(?<!^)(\\{2,})/i', DIRECTORY_SEPARATOR , $stringaDaPulire);
 
+    }
+
+    public function retrieveYamlParam($key){
+        return $this->recursiveArraySeek($key, $this->siteaccess_config_file_data);
+    }
+
+    /**
+     * Funzione copiata da PHP e modificata alla cazzo, mi serviva per cercare sia un valore che una key
+     * ricorsivamente dentro un array
+     *
+     * @param $needle
+     * @param $haystack
+     * @return bool|int|string
+     */
+    public function recursive_array_search($needle,$haystack) {
+        foreach($haystack as $key=>$value) {
+
+            if($needle === $value) {
+                return true;
+            }
+            if($needle === $key){
+                return true;
+            }
+            if(is_array($value)){
+                if($this->recursive_array_search($needle,$value)){
+                    return array($key=>$value);
+                }
+            }
+            if(is_array($value)){
+                if($this->recursive_array_search($key,$value)){
+                    return array($key=>$value);
+                }
+            }
+
+        }
+        return false;
+    }
+    /**
+     * Funzione copiata da PHP e modificata alla cazzo, mi serviva per cercare sia un valore che una key
+     * ricorsivamente dentro un array
+     *
+     * @param $needle
+     * @param $haystack
+     * @return bool|int|string
+     */
+    protected function recursiveArraySeek($needle,$haystack) {
+
+        //Il modo migliore per leggere un array e prende le sue key
+        //senza conoscere l'array precedentemente
+        foreach($haystack as $key=>$value) {
+
+            //Confrontiamo vs valore
+            if($needle === $value)
+            {
+                //Sì, diamo tutto il pezzo
+                return array($key => $value);
+            }
+            //Confrontiamo vs chiave
+            if($needle === $key)
+            {
+                //Sì, diamo tutto il pezzo
+                return array($key => $value);
+            }
+
+            //Né la chiave né il valore combaciano, ma non abbiamo esplorato tutta la struttura dell'array
+            if(is_array($value))
+            {
+                //Tramite la ricorsione, spulciamo ulteriormente alla ricerca del valore nell'array
+                $check = $this->recursiveArraySeek($needle, $value);
+                if(!is_null($check))
+                {
+                    return $check;
+                }
+            }
+
+        }
+        return null;
     }
 }

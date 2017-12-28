@@ -1,0 +1,24 @@
+#Qui impostiamo le configurazioni di base per i siteaccess
+siteaccesses:
+  devel:
+    #Espressione regolare preferibilmente
+    host_pattern: localhost
+    file: development.yml
+
+  test:
+    #Espressione regolare preferibilmente
+    host_pattern: nonexistent
+    file: test.yml
+
+  prod:
+    #Espressione regolare preferibilmente
+    host_pattern: nonexistent
+    file: production.yml
+
+
+#------------------------------------------------------------------
+#                           SERVIZI
+#------------------------------------------------------------------
+services:
+  mock_service:
+    class: Tests\Fixtures\MockService
