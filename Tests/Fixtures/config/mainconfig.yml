@@ -1,23 +1,24 @@
-#Qui impostiamo le configurazioni di base per i siteaccess
+# Set up here the files that will hold the specific configurations based on
+# host (meant for HTTP access) or definition (meant for CLI access)
 siteaccesses:
   devel:
-    #Espressione regolare preferibilmente
+    #PCRE regular expression allowed in the pattern
     host_pattern: localhost
     file: development.yml
 
   test:
-    #Espressione regolare preferibilmente
+    #PCRE regular expression allowed in the pattern
     host_pattern: nonexistent
     file: test.yml
 
   prod:
-    #Espressione regolare preferibilmente
+    #PCRE regular expression allowed in the pattern
     host_pattern: nonexistent
     file: production.yml
 
 
 #------------------------------------------------------------------
-#                           SERVIZI
+#                           SERVICES
 #------------------------------------------------------------------
 services:
   mock_service:

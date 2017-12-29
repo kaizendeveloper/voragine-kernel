@@ -16,7 +16,7 @@ namespace Voragine\Kernel\Services\Base;
 use Symfony\Component\Yaml\Yaml;
 
 
-class ServiceLoader implements \IteratorAggregate
+class ServiceLoader
 {
 
     //Default values
@@ -57,8 +57,6 @@ class ServiceLoader implements \IteratorAggregate
     protected $services_namespace;
 
 
-    protected $special_config_array;
-
 
     public function __construct($environment = 'devel', $specialConfigurations = null)
     {
@@ -74,12 +72,8 @@ class ServiceLoader implements \IteratorAggregate
 
 
         //----------------------------------------------------------------------------
-        //                          CONFIGURAZIONI SPECIALI
+        //                          SPECIAL CONFIGURATIONS (Overrides/Hacks)
         //----------------------------------------------------------------------------
-
-        //Salviamo le configurazioni speciali, che possono servire per qualsiasi altro servizio, compreso anche
-        //questo caricatore
-        //$this->special_config_array = $specialConfigurations;
 
 
         //Prendiamo il percorso del file iniziale
@@ -120,21 +114,27 @@ class ServiceLoader implements \IteratorAggregate
             //                  COMMAND LINE INTERFACE
             //--------------------------------------------------------------------
 
-            //Controlliamo che nella configurazione ci sia l'impostazione del file a leggere
+            //Check that in the main configuration file is specified the file that
+            //holds the siteaccess configuration
+            //e.g. development.yml
 
-            //Abbiamo già la posizione nell'array dove dovrebbe esserci l'impostazione del file a
-            //leggere
+            // siteaccesses:
+            //  devel:
+            //     host_pattern: localhost
+            //      file: development.yml
 
+
+            //We already know where the info about the filename should be in the main array, so
             if(isset($globalConfig['siteaccesses'])) {
                 foreach ($globalConfig['siteaccesses'] as $key => $siteaccessConfigInfo) {
                     //Il primo livello definisce la descrizione del siteaccess, che verrà contenuta nella variabile $key
 
-                    //Devono esserci almeno: criterio per il rilevamento e il nome di file per tale siteaccess
+                    //The key should match the environment passed
                     if (strtolower($key) === strtolower($environment)) {
                         $this->siteaccess = $key;
                         $localConfigFile = $siteaccessConfigInfo['file'];
 
-                        //Abbiamo già il necessario (Usciamo dal FOREACH)
+                        //Now we have the so needed filename (Exit the loop)
                         break;
 
                     }
@@ -142,9 +142,9 @@ class ServiceLoader implements \IteratorAggregate
             }
 
             if($this->siteaccess === null) {
-                //Non è stato trovato un ambiente da dove prendere le configurazioni
 
-                syslog(LOG_ERR, "Enviroment passato da CLI ma non c'è riferimento al file YAML per \"" . $environment . "\" forse c'è un errore d'indentazione. Controllate il parametro \"file:\" sotto la configurazione del siteaccess nel mainconfig.yml e quello che passate da CLI.");
+                //No environment has been located so we don't where to read the configuration file
+                syslog(LOG_ERR, "There is no reference to the YAML file which holds the configuration info meant for the environment \"" . $environment . "\" maybe there's an indentation error. Check the \"file:\"  parameter under siteaccess' configuration located in mainconfig.yml and the --env parameter you're passing through CLI.");
 
                 exit(0);
             }
@@ -258,7 +258,7 @@ class ServiceLoader implements \IteratorAggregate
         if($localConfigFile !== null) {
 
             //Assemble the full path for the siteaccess related configuration file
-            $specificSiteaccessFile = APP_BASEDIR . $this->base_config_path . DIRECTORY_SEPARATOR . "siteaccess" . DIRECTORY_SEPARATOR . $localConfigFile;
+            $specificSiteaccessFile = $this->cleanDoubleSlash(APP_BASEDIR . $this->base_config_path . DIRECTORY_SEPARATOR . "siteaccess" . DIRECTORY_SEPARATOR . $localConfigFile);
 
             //And try to parse that YAML file
             try {
@@ -268,7 +268,7 @@ class ServiceLoader implements \IteratorAggregate
             } catch(\Exception $e){
 
                 //In case of error, log and stop execution
-                $executionError = "Voragione Service Loader - Loading of siteaccess " . $this->siteaccess . " failed";
+                $executionError = "Voragine Service Loader - Loading of siteaccess " . $this->siteaccess . " failed";
                 syslog(LOG_ERR, $executionError);
                 echo $executionError . "\r\n";
 
@@ -460,6 +460,7 @@ class ServiceLoader implements \IteratorAggregate
      * @param $configurazione
      * @param $configurazioneSpeciale Data una chiamata di servizio, consente il passaggio di configurazioni aggiuntive
      *                                mirate per un determinato servizio
+     * @throws \Exception
      * @return mixed
      */
     public function get($serviceIdentifier, $configurazione = null, $configurazioneSpeciale = null)
@@ -496,7 +497,7 @@ class ServiceLoader implements \IteratorAggregate
 
 
     /**
-     * Controlla se un oggetto è di un tipo X
+     * Checks loosely if an object is of type X
      *
      * @param $objectTypeToCheck
      * @param $variableToCheck
@@ -505,23 +506,22 @@ class ServiceLoader implements \IteratorAggregate
     public function objectIsOfType($objectTypeToCheck, $variableToCheck)
     {
 
-        //Innanzi tutto verifichiamo che sia un oggetto
         if(is_object($variableToCheck))
         {
-            //Sì, allora vediamo se contiene qualche descrizione che lo identifichi
+            //Is an object, now let's check if it has any information in it that allows us to identify it
             if(preg_match('/' . (string)$objectTypeToCheck . '/i', @get_class($variableToCheck)) === 1) {
 
-                //E' di questo tipo
+                //Yes, is of this type
                 return true;
 
             } else {
 
-                //E' di un altro tipo
+                //Nope, it's not
                 return false;
             }
 
         } else {
-            //Non è manco un oggetto
+            //It's not even an object!
             return false;
 
         }
@@ -559,6 +559,8 @@ class ServiceLoader implements \IteratorAggregate
                         } else {
                             //No, the base config path has been changed then
                             $this->base_config_path = DIRECTORY_SEPARATOR . $config[self::CFGK_SERVICE_LOADER][self::CFGK_BASE_PATH];
+                            //After composing the path clean up any excess
+                            $this->base_config_path = $this->cleanDoubleSlash($this->base_config_path);
                         }
                     }
 
@@ -588,58 +590,60 @@ class ServiceLoader implements \IteratorAggregate
 
 
     /**
-     * Pulisce gli slash ripetuti in una stringa
+     * Cleans up any duplicated slash inside a string
      *
-     * @param $stringaDaPulire
+     * @param $stringToCleanUp
      * @return mixed
      */
-    private function cleanDoubleSlash($stringaDaPulire){
+    private function cleanDoubleSlash($stringToCleanUp){
 
-        //Prendiamo il percorso del file, eliminando gli slash DIRECTORY_SEPARATOR e '\' di troppo
-        //evitando di toglierli nel caso di http://www.elle.it, invece per i sistemi windows
-        //evitiamo di togliere gli inizi delle cartelle di rete \\host\percorso
-        return preg_replace('/(?<!:)(\/{2,})|(?<!^)(\\{2,})/i', DIRECTORY_SEPARATOR , $stringaDaPulire);
+        //Clean up any double slash whether they're '/' (unix) or '\' (win)
+        //except in the case of http://www.elle.it which is allowed
+        //For Windows systems instead, we try not to impact on network notation such as \\host\path
+        return preg_replace('/(?<!:)(\/{2,})|(?<!^)(\\{2,})/i', DIRECTORY_SEPARATOR , $stringToCleanUp);
 
     }
 
-    public function retrieveYamlParam($key){
+    /**
+     * Given a key it searches the parsed configuration recursively and returns the whole desired collection if found
+     *
+     * @param $key
+     * @return bool|int|string
+     */
+    public function retrieveFromParams($key){
         return $this->recursiveArraySeek($key, $this->siteaccess_config_file_data);
     }
 
     /**
-     * Funzione copiata da PHP e modificata alla cazzo, mi serviva per cercare sia un valore che una key
-     * ricorsivamente dentro un array
+     * Reads an already parsed siteaccess YAML information file considering for the search the root key only
      *
-     * @param $needle
-     * @param $haystack
-     * @return bool|int|string
+     * @param null $specificConfig
+     * @return array|mixed|null
      */
-    public function recursive_array_search($needle,$haystack) {
-        foreach($haystack as $key=>$value) {
+    public function readSiteaccessConfig($specificConfig = null){
 
-            if($needle === $value) {
-                return true;
-            }
-            if($needle === $key){
-                return true;
-            }
-            if(is_array($value)){
-                if($this->recursive_array_search($needle,$value)){
-                    return array($key=>$value);
-                }
-            }
-            if(is_array($value)){
-                if($this->recursive_array_search($key,$value)){
-                    return array($key=>$value);
-                }
-            }
+        //Ensure is a string
+        $specificConfig = (string)$specificConfig;
 
+        if($specificConfig === '')
+        {
+            //Give back all in the case nothing's specified
+            return $this->siteaccess_config_file_data;
+
+        } else {
+
+            //Retrieve only one result if exists
+            if(isset($this->siteaccess_config_file_data[$specificConfig])){
+                return $this->siteaccess_config_file_data[$specificConfig];
+            }
         }
-        return false;
+
+        return null;
     }
+
+
     /**
-     * Funzione copiata da PHP e modificata alla cazzo, mi serviva per cercare sia un valore che una key
-     * ricorsivamente dentro un array
+     * Searches recursively and array returning the whole matching array (copied from PHP Manual's Page)
      *
      * @param $needle
      * @param $haystack
@@ -647,27 +651,26 @@ class ServiceLoader implements \IteratorAggregate
      */
     protected function recursiveArraySeek($needle,$haystack) {
 
-        //Il modo migliore per leggere un array e prende le sue key
-        //senza conoscere l'array precedentemente
+        //Best way to explore an array fetching its key when it's unknown how the array is built
         foreach($haystack as $key=>$value) {
 
-            //Confrontiamo vs valore
+            //Compare using value
             if($needle === $value)
             {
-                //Sì, diamo tutto il pezzo
+                //Return the whole part
                 return array($key => $value);
             }
-            //Confrontiamo vs chiave
+            //Compare using key
             if($needle === $key)
             {
-                //Sì, diamo tutto il pezzo
+                //Return the whole part
                 return array($key => $value);
             }
 
-            //Né la chiave né il valore combaciano, ma non abbiamo esplorato tutta la struttura dell'array
+            //Neither key nor value match, but we're not done through yet with the array structure
             if(is_array($value))
             {
-                //Tramite la ricorsione, spulciamo ulteriormente alla ricerca del valore nell'array
+                //Through recursion we dig deeper into the collection
                 $check = $this->recursiveArraySeek($needle, $value);
                 if(!is_null($check))
                 {

@@ -72,6 +72,22 @@ class ServiceLoaderTest extends TestCase {
 
         $mockedService = $services->get('mock_service');
         $this->assertInstanceOf(MockService::class, $mockedService, 'Voragine could not load the service MOCK');
+
+        //Make sure we can read the parsed YAML for this service recursively
+        $this->assertArrayHasKey('mock_service' , $services->retrieveFromParams('mock_service'));
+        $this->assertArraySubset( array(1 => 'second_list_item')  , $services->retrieveFromParams('second_list_item'));
+        $this->assertArraySubset(array('some_third_level_key' => 'some_third_level_value') , $services->retrieveFromParams('some_third_level_key'));
+
+        //Make sure that we can read the root config of the already parsed siteaccess (aimed)
+        $this->assertNull($services->readSiteaccessConfig('some_third_level_key'));
+        $this->assertArrayHasKey('any_other_keys' , $services->readSiteaccessConfig('any_other_service'));
+
+        //Getting the whole config and checking some of the values
+        $this->assertArraySubset(array('any_other_service' => array('any_other_keys' => 'and_values')) , $services->readSiteaccessConfig());
+        
+
+
+
     }
 
 

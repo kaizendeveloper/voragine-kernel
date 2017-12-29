@@ -3,3 +3,15 @@
 # ---------------------------------------------------
 
 # Siteaccess related configuration file
+mock_service:
+  some_key: some_value
+  some_second_level_key:
+    some_third_level_key: some_third_level_value
+  some_list:
+    - first_list_item
+    - second_list_item
+    - mock_service
+
+any_other_service:
+  any_other_keys: and_values
+
